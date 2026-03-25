@@ -246,3 +246,217 @@ fn calculate_length(s: String) -> (String, usize) {
 ```
 
 但是这未免有些形式主义，而且这种场景应该很常见。幸运的是，Rust 对此提供了一个不用获取所有权就可以使用值的功能，叫做 **引用**（*references*）。
+
+
+
+## 引用与借用
+
+### 引用
+
+  String 是有所有权的类型。
+  当你把一个 String 作为参数传给 calculate_length 时，所有权会移动到这个函数里。
+
+所谓借用就是函数里传递引用。示例如下
+
+```rust
+fn main() {
+    let str = String::from("Hello, world!");
+    let length = calculate_length(&str); //函数通过引用借用原来的值
+    println!("The length of '{}' is {}.", str, length);
+}
+
+fn calculate_length(str: &String) -> usize {
+    return str.len();
+}
+
+```
+
+与使用 `&` 引用相反的操作是 **解引用**（*dereferencing*），它使用解引用运算符 `*` 实现。
+
+但是上面的数据没有加mut所以是不可变的引用。
+
+```rust
+fn main() {
+    let mut s = String::from("hello"); //加mut
+
+    change(&mut s); //可变引用
+}
+
+fn change(some_string: &mut String) {
+    some_string.push_str(", world");
+}
+```
+
+### 可变引用
+
+可变引用有一个很大的限制：如果你有一个对该变量的可变引用，你就不能再创建对该变量的引用。
+
+(在同一个作用域不能出现两个可变引用)
+
+```rust
+    let mut s = String::from("hello");  //下面的行为会报错。
+
+    let r1 = &mut s;
+    let r2 = &mut s;
+
+    println!("{r1}, {r2}");
+```
+
+```rust
+    let mut s = String::from("hello"); //以下行为完全没有问题
+
+    {
+        let r1 = &mut s;
+    } // r1 在这里离开了作用域，所以我们完全可以创建一个新的引用
+
+    let r2 = &mut s;
+```
+
+Rust 在同时使用可变与不可变引用时也强制采用类似的规则。 
+
+可变引用可以有多个。
+
+不能在拥有不可变引用的同时拥有可变引用
+
+如果不可变引用的作用域，在其最后一次使用后消失，所以可变引用可以在不可变消失后使用
+
+```rust
+    let mut s = String::from("hello");
+
+    let r1 = &s; // 没问题
+    let r2 = &s; // 没问题
+    println!("{r1} and {r2}");
+    // 此位置之后 r1 和 r2 不再使用
+
+    let r3 = &mut s; // 没问题
+    println!("{r3}");
+```
+
+```rust
+fn main() {
+    let mut str = String::from("Hello, world!");
+    let mystr = &mut str;
+    let length = calculate_length(mystr); //从可变引用到不可变引用的自动强制转换
+    mystr.push_str("!");
+    println!("{},{}", mystr, length);
+}
+
+fn calculate_length(str: &String) -> usize {
+    return str.len();
+}
+
+```
+
+### 悬垂引用
+
+在带有指针的语言中，如果释放了一块内存，却保留了指向它的指针，就很容易错误地制造出一个**悬垂指针**（*dangling pointer*）。
+
+在 Rust 中，编译器保证引用永远不会变成悬垂引用。
+
+```rust
+fn main() {
+    let reference_to_nothing = dangle();
+}
+
+fn dangle() -> &String {
+    let s = String::from("hello"); //作用域到我就死了
+
+    &s //作为死人你为什么要返回我的引用？
+}
+```
+
+引用不等于所有权，给你引用，所有权还在我这里，生命到了，我就走了，不管你了
+
+```rust
+fn dangle() -> &String { // dangle 返回一个字符串的引用
+
+    let s = String::from("hello"); // s 是一个新字符串
+
+    &s // 返回字符串 s 的引用
+} // 这里 s 离开作用域并被丢弃。其内存被释放。
+  // 危险！
+```
+
+解决方案返回所有权
+
+```rust
+fn no_dangle() -> String {
+    let s = String::from("hello");
+
+    s
+}
+```
+
+规则
+
+- 在任意给定时间，**要么**只能有一个可变引用，**要么**只能有多个不可变引用。
+- 引用必须总是有效的。
+
+## 切片
+
+### slice
+
+**字符串 slice**（*string slice*）是 `String` 中一部分值的引用，它看起来像这样：
+
+```rust
+    let s = String::from("hello world");
+
+    let hello = &s[0..5];
+    let world = &s[6..11];
+```
+
+```rust
+fn first_word(s: &String) -> &str {
+    let bytes = s.as_bytes();
+
+    for (i, &item) in bytes.iter().enumerate() {
+        if item == b' ' {
+            return &s[0..i]; 
+        }
+    }
+
+    &s[..] //&s作为返回就完全不行了
+}
+```
+
+
+
+  - s：路标，指向外部字符串
+  - &s：借路标本身，不行
+  - &s[..1]：顺着路标找到字符串，再借其中一段，可以
+
+### 字符串字面值就是slice
+
+```rust
+let s = "Hello, world!";
+```
+
+这里 `s` 的类型是 `&str`：它是一个指向二进制程序特定位置的 slice。这也就是为什么字符串字面值是不可变的；`&str` 是一个不可变引用。
+
+在知道了能够获取字面值和 `String` 的 slice 后，我们对 `first_word` 做了改进，这是它的签名：
+
+```rust
+fn first_word(s: &String) -> &str {
+```
+
+而更有经验的 Rustacean 会编写出示例 4-9 中的签名，因为它使得可以对 `&String` 值和 `&str` 值使用相同的函数：
+
+```rust
+fn first_word(s: &str) -> &str {
+```
+
+字符串 slice，正如你想象的那样，是针对字符串的。不过也有更通用的 slice 类型。考虑一下这个数组：
+
+```rust
+let a = [1, 2, 3, 4, 5];
+```
+
+就跟我们想要获取字符串的一部分那样，我们也会想要引用数组的一部分。我们可以这样做：
+
+```rust
+let a = [1, 2, 3, 4, 5];
+
+let slice = &a[1..3];
+
+assert_eq!(slice, &[2, 3]);
+```

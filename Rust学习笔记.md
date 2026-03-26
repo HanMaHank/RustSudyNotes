@@ -460,3 +460,431 @@ let slice = &a[1..3];
 
 assert_eq!(slice, &[2, 3]);
 ```
+
+----
+
+
+
+### 通过派生trait增加功能
+
+```rust
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    println!("rect1 is {rect1}"); //报错
+}
+
+```
+
+`println!` 宏能处理很多类型的格式，`{}` 默认告诉 `println!` 使用被称为 `Display` 的格式。
+
+意在提供给直接终端用户查看的输出。
+
+目前为止见过的基本类型都默认实现了 `Display`，因为它就是向用户展示 `1` 或其他任何基本类型的唯一方式。
+
+不过对于结构体，`println!` 应该用来输出的格式是不明确的，因为这有更多显示的可能性：是否需要逗号？需要打印出大括号吗？所有字段都应该显示吗？由于这种不确定性，Rust 不会尝试猜测我们的意图，所以结构体并没有提供一个 `Display` 实现来使用 `println!` 与 `{}` 占位符。
+
+```rust
+error[E0277]: `Rectangle` doesn't implement `std::fmt::Display`
+  --> src\main.rs:12:24
+   |
+12 |     println!("rect1 is {rect1}"); //报错
+   |                        ^^^^^^^ `Rectangle` cannot be formatted with the default formatter
+   |
+help: the trait `std::fmt::Display` is not implemented for `Rectangle`
+  --> src\main.rs:1:1
+   |
+ 1 | struct Rectangle {
+   | ^^^^^^^^^^^^^^^^
+   = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+   = note: this error originates in the macro `$crate::format_args_nl` which comes from the expansion of the macro `println` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+```
+
+告诉我是不是想要一种{:?} 这样的形式
+
+```rust
+    println!("rect1 is {rect1:?}"); //报错
+
+```
+
+```rust
+12 |     println!("rect1 is {rect1:?}"); //报错
+   |                        ^^^^^^^^^ `Rectangle` cannot be formatted using `{:?}` because it doesn't implement `Debug`
+   |
+```
+
+此时依然报错，指出没有实现debug
+
+```rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    println!("rect1 is {rect1:?}"); //成功输出
+}
+```
+
+ 另一种使用`Debug` 格式打印数值的方法是使用 [`dbg!` 宏](https://doc.rust-lang.org/std/macro.dbg.html)。`dbg!` 宏接收一个表达式的所有权（与 `println!` 宏相反，后者接收的是引用）
+
+```rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let scale = 2;
+    let rect1 = Rectangle {
+        width: dbg!(30 * scale),
+        height: 50,
+    };
+
+    dbg!(&rect1);
+}
+```
+
+```rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    dbg!(&rect1);
+    println!("{rect1:?}", );
+    println!("{:#?}", rect1);
+}
+```
+
+想要弄清楚代码在做什么dbg很有用
+
+## 方法
+
+### 方法
+
+**方法**（method）与函数类似：它们使用 `fn` 关键字和名称声明，可以拥有参数和返回值，同时包含在某处调用该方法时会执行的代码
+
+不过方法与函数是不同的，因为它们在**结构体的上下文**中被定义
+
+```rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle { //接口
+    fn area(&self) -> u32 { //& 来表示这个方法借用了 Self 实例
+        self.width * self.height
+    }
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    println!(
+        "The area of the rectangle is {} square pixels.",
+        rect1.area()
+    );
+}
+```
+
+除了可使用方法语法和不需要在每个函数签名中重复 `self` 的类型之外，其主要好处在于组织性。我们将某个类型实例能做的所有事情都一起放入 `impl` 块中，而不是让将来的用户在我们的库中到处寻找 `Rectangle` 的功能。
+
+```rust
+impl Rectangle {
+    fn width(&self) -> bool {
+        self.width > 0
+    }
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    if rect1.width() {
+        println!("The rectangle has a nonzero width; it is {}", rect1.width); //字段与方法同名
+    }
+}
+```
+
+字段与方法同名的时候
+
+在 `main` 中，当我们在 `rect1.width` 后面加上括号时。Rust 知道我们指的是方法 `width`。当我们不使用圆括号时，Rust 知道我们指的是字段 `width`。
+
+**有没有圆括号的区别**
+
+
+
+### 关联函数
+
+所有在 `impl` 块中定义的函数被称为 **关联函数**（*associated functions*），因为它们与 `impl` 后面命名的类型相关。
+
+我们可以定义不以 `self` 为第一参数的关联函数（**因此不是方法**），因为它们并**不作用于一个结构体的实例**。我们已经使用了一个这样的函数：在 `String` 类型上定义的 `String::from` 函数。
+
+不是方法的关联函数经常被用作返回一个结构体新实例的**构造函数**。这些函数的名称通常为 `new` ，但 `new` 并不是一个关键字。例如我们可以提供一个叫做 `square` 关联函数，它接受一个维度参数并且同时作为宽和高，这样可以更轻松的创建一个正方形 `Rectangle`
+
+```rust
+impl Rectangle {
+    fn square(size: u32) -> Self {
+        Self {
+            width: size,
+            height: size,
+        } //构造函数
+    }
+}
+```
+
+**不带 &self**，所以可以直接类型调用
+
+用这个关联函数，我们使用结构体名和 `::` 语法；比如 `let sq = Rectangle::square(3);`
+
+`::` 语法用于关联函数和模块创建的命名空间。
+
+### 多个impl块
+
+每个结构体都允许拥有多个 `impl` 块
+
+没有理由将这些方法分散在多个 `impl` 块中，不过这是有效的语法。
+
+## 枚举
+
+**枚举**（*enumerations*），也叫作 *enums*。枚举让你可以通过列举某个类型所有可能的 **变体**（*variants*）来定义这个类型。
+
+### 枚举的定义
+
+结构体给予你将字段和数据聚合在一起的方法，像 `Rectangle` 结构体有 `width` 和 `height` 两个字段。
+
+而枚举给予你一个途径去声明某个值是一个集合中的一员。比如，我们想让 `Rectangle` 是一些形状的集合，包含 `Circle` 和 `Triangle` 。
+
+为此，Rust 允许我们将这些可能性编码为一个枚举类型。
+
+让我们看看一个需要诉诸于代码的场景，来考虑为何此时使用枚举更为合适且实用。
+
+假设我们要**处理 IP 地址**。目前被广泛使用的两个主要 IP 标准：**IPv4**（version four）和 **IPv6**（version six）。
+
+这是我们的程序可能会遇到的所有可能的 IP 地址类型：所以可以**枚举**出所有可能的值，这也正是枚举一词的由来。
+
+任何一个 IP 地址要么是 IPv4 的要么是 IPv6 的，而且不能两者都是。
+
+可以通过在代码中定义一个 `IpAddrKind` 枚举来表现这个概念并列出可能的 IP 地址类型，`V4` 和 `V6`。这被称为枚举的**变体**（*variants*）：
+
+```rust
+enum IpAddrKind {
+    V4,
+    V6,
+}
+```
+
+现在 `IpAddrKind` 就是一个可以在代码中使用的自定义数据类型了。
+
+### 枚举值
+
+可以像这样创建 `IpAddrKind` 两个不同变体的实例：
+
+```rust
+	let four = IpAddrKind::V4;
+    let six = IpAddrKind::V6;
+```
+
+注意枚举的变体位于其标识符的命名空间中，并使用两个冒号分开。这么设计的益处是现在 `IpAddrKind::V4` 和 `IpAddrKind::V6` 都是 `IpAddrKind` 类型的。例如，接着可以定义一个函数来接收任何 `IpAddrKind`类型的参数：
+
+```rust
+fn main() {
+    let four = IpAddrKind::V4;
+    let six = IpAddrKind::V6;
+    route(four);
+    route(six);
+}
+fn route(ip_type: IpAddrKind) {
+    println!("route ip {:?}", ip_type);
+}
+//输出
+//route ip V4
+//route ip V6
+```
+
+结构体结合枚举
+
+```rust
+fn main() {
+    let myIp = IpAddr::new(IpAddrKind::V4,String::from("192.168.1.1"));
+    println!("{myIp:?}", );
+}
+#[derive(Debug)]
+enum IpAddrKind {
+    V4,
+    V6
+}
+impl IpAddr {
+    // 静态方法：关联函数
+    fn new(kind: IpAddrKind, address: String) -> Self {
+        Self { kind, address }
+    }
+}
+#[derive(Debug)]
+struct IpAddr {
+    kind: IpAddrKind,
+    address: String
+}
+```
+
+更简单的用法
+
+可以使用一种更简洁的方式来表达相同的概念，仅仅使用枚举并将数据直接放进每一个枚举变体而**不是将枚举作为结构体**的一部分。
+
+```rust
+use std::net::{IpAddr, Ipv6Addr};
+
+fn main() {
+    let home = IpAddrKind::V4(String::from("127.0.0.1"));
+    let loopback = IpAddrKind::V6(String::from("::1"));
+    println!("Home: {:?}", home);
+    println!("Loopback: {:?}", loopback);
+}
+//输出
+//Home: V4("127.0.0.1")
+//Loopback: V6("::1")
+
+#[derive(Debug)]
+enum IpAddrKind {
+    V4(String),
+    V6(String),
+}
+```
+
+枚举替代结构体还有另一个优势：每个变体可以处理**不同类型和数量**的数据 (**你java做的到**？)
+
+```rust
+    enum IpAddr {
+        V4(u8, u8, u8, u8),
+        V6(String),
+    }
+
+    let home = IpAddr::V4(127, 0, 0, 1);
+
+    let loopback = IpAddr::V6(String::from("::1"));
+```
+
+这些代码展示了使用枚举来存储两种不同 IP 地址的几种可能的选择。然而，事实证明存储和编码 IP 地址实在是太常见了[以致标准库提供了一个开箱即用的定义！](https://doc.rust-lang.org/std/net/enum.IpAddr.html)让我们看看标准库是如何定义 `IpAddr` 的：它正有着跟我们定义和使用的一样的枚举和变体，不过它将变体中的地址数据嵌入到了两个不同形式的结构体中，它们对不同的变体的定义是不同的：
+
+```rust
+struct Ipv4Addr {
+    // --snip--
+}
+
+struct Ipv6Addr {
+    // --snip--
+}
+
+enum IpAddr {
+    V4(Ipv4Addr),
+    V6(Ipv6Addr),
+}
+```
+
+这些代码展示了可以将任意类型的数据放入枚举变体中：例如字符串、数字类型或者结构体。甚至可以包含另一个枚举！另外，标准库中的类型通常并不比你设想出来的要复杂多少。
+
+**枚举也可以impl**
+
+
+
+### option枚举
+
+这一部分会分析一个 `Option` 的案例，`Option` 是标准库定义的另一个枚举。`Option` 类型应用广泛因为它编码了一个非常普遍的场景，即一个值要么有值要么没值。
+
+例如，如果请求一个非空列表的第一项，会得到一个值，如果请求一个空的列表，就什么也不会得到。
+
+从类型系统的角度来表达这个概念就意味着编译器需要**检查是否处理了所有应该处理**的情况，这样就可以避免在其他编程语言中非常常见的 bug。
+
+Rust 并**没有**很多其他语言中有的空值功能。**空值**（*Null* ）是一个值，它代表没有值。在有空值的语言中，变量总是这两种状态之一：空值和非空值。
+
+空值的问题在于当你尝试像一个非空值那样使用一个空值，会出现某种形式的错误。因为空和非空的属性无处不在，非常容易出现这类错误。
+
+然而，空值尝试表达的概念仍然是有意义的：**空值是一个因为某种原因目前无效或缺失的值**。
+
+问题不在于概念而在于具体的实现。为此，Rust 并没有空值，不过它确实拥有一个可以编码存在或不存在概念的枚举。这个枚举是 `Option<T>`而且它[定义于标准库中](https://doc.rust-lang.org/std/option/enum.Option.html)，如下：
+
+```rust
+enum Option<T> {
+    None,
+    Some(T),
+}
+```
+
+`Option<T>` 枚举是如此有用以至于它甚至被包含在了 prelude 之中，无需将其显式引入作用域。
+
+另外，它的变体也是如此：可以不需要 `Option::` 前缀来直接使用 `Some` 和 `None`。
+
+即便如此 `Option<T>` 也仍是常规的枚举，`Some(T)` 和 `None` 仍是 `Option<T>` 的变体。
+
+`<T>` 语法是一个我们还未讲到的 Rust 功能。它是一个泛型类型参数，第十章会更详细的讲解泛型。目前，所有你需要知道的就是 `<T>` 意味着 `Option` 枚举的 `Some` 变体可以包含任意类型的数据，同时每一个用于 `T` 位置的具体类型使得 `Option<T>` 整体作为不同的类型。
+
+```rust
+    let some_number = Some(5); //不用::就直接使用了
+    let some_char = Some('e');
+
+    let absent_number: Option<i32> = None; //需要明确指定是Option
+```
+
+`some_number` 的类型是 `Option<i32>`。`some_char` 的类型是 `Option<char>`，是不同于 `some_number` 的类型。
+
+因为我们在 `Some` 变体中指定了值，Rust 可以推断其类型。对于 `absent_number`，Rust 需要我们**指定** `Option` 整体的类型，因为编译器只通过 `None` 值**无法推断**出 `Some` 变体保存的值的类型。
+
+当有一个 `Some` 值时，我们就知道存在一个值，而这个值保存在 `Some` 中。当有个 `None` 值时，在某种意义上，它跟空值具有相同的意义：并没有一个有效的值。那么，`Option<T>` 为什么就比空值要好呢？
+
+因为 `Option<T>` 和 `T`（这里的 `T` 可以是任何类型）是不同的类型，所以编译器不允许我们把 `Option<T>` 当成一个肯定有效的值来使用。(指定了T，可以把none当作某个类型使用)
+
+例如，这段代码不能编译，因为它试图把 Option<i8> 和 i8 相加：
+
+```rust
+    let x: i8 = 5;
+    let y: Option<i8> = Some(5);
+
+    let sum = x + y;
+```
+
+Rust 不知道该如何把 `Option<i8>` 和 `i8` 相加，因为它们是不同的类型。当我们在 Rust 中拥有一个像 `i8` 这样的值时，编译器会确保它总是有效的。
+
+我们可以放心使用它，而无需先做空值检查。只有当我们使用 `Option<i8>`（或者任何别的 `Option<T>`）时，才需要考虑值可能不存在，而编译器会确保我们在使用这个值之前处理了这种情况。
+
+在对 `Option<T>` 进行运算之前必须将其转换为 `T`。通常这能帮助我们捕获到空值最常见的问题之一：假设某值不为空但实际上为空的情况。
+
+消除了错误地假设一个非空值的风险，会让你对代码更加有信心。为了拥有一个可能为空的值，你必须要显式的将其放入对应类型的 `Option<T>` 中。
+
+当使用这个值时，**必须明确的处理值为空的情况**。
+
+只要一个值不是 `Option<T>` 类型，你就**可以**安全的认定它的值不为空。
+
+看官方文档就知道怎么从option取了
+
+[option的文档](https://doc.rust-lang.org/std/option/enum.Option.html)
